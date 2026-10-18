@@ -297,6 +297,7 @@
       } else {
         // 終了・記録処理
         const elapsedSec = Math.floor((Date.now() - timerState.startTime) / 1000);
+        if (!confirm(`読書を終了して記録しますか？（${formatReadable(elapsedSec)}）\n「キャンセル」を押すと計測を続けます。`)) return;
         clearInterval(timerInterval);
 
         if (elapsedSec >= 1) {
