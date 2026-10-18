@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>読書タイマー</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-title" content="読書タイマー">
+  <meta name="theme-color" content="#1e293b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --sub: #64748b;
+      --primary: #2563eb;
+      --danger: #dc2626;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 540px;
+      margin: 0 auto;
+      padding: 16px;
+      padding-bottom: 48px;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 16px; font-weight: 700; }
+    h2 { font-size: 0.95rem; color: var(--sub); margin-bottom: 12px; font-weight: 600; }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    /* 統計サマリー */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      text-align: center;
+    }
+    .stat-box {
+      background: var(--bg);
+      padding: 12px 6px;
+      border-radius: 8px;
+    }
+    .stat-label { font-size: 0.75rem; color: var(--sub); margin-bottom: 4px; }
+    .stat-val { font-size: 1rem; font-weight: 700; color: var(--primary); }
+
+    /* タイマーセクション */
+    .timer-section { text-align: center; padding: 24px 16px; }
+    .active-book {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .timer-display {
+      font-size: 3rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      margin: 12px 0 20px;
+      letter-spacing: 1px;
+    }
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:active { opacity: 0.75; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-large { width: 100%; padding: 14px; font-size: 1.1rem; }
+
+    /* 本の追加・リスト */
+    .input-group { display: flex; gap: 8px; margin-bottom: 12px; }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: var(--primary); }
+    .book-list, .log-list { list-style: none; }
+    .book-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .book-item.selected {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+    .book-title { font-weight: 600; flex: 1; margin-right: 8px; }
+    .book-meta { display: flex; align-items: center; gap: 10px; }
+    .book-time { font-size: 0.85rem; color: var(--sub); white-space: nowrap; }
+    .del-btn {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 1.1rem;
+      padding: 4px;
+      cursor: pointer;
+    }
+    .del-btn:hover { color: var(--danger); }
+
+    /* ログ・日別履歴 */
+    .log-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .log-item:last-child { border-bottom: none; }
+    .empty-msg { font-size: 0.85rem; color: var(--sub); text-align: center; padding: 12px 0; }
+  </style>
+</head>
+<body>
+
+  <h1>📚 読書タイマー</h1>
+
+  <!-- 1. 記録サマリー（日・週・累計） -->
+  <div class="card">
+    <h2>読書時間の記録</h2>
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="stat-label">今日</div>
+        <div class="stat-val" id="todayTime">0分</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">今週 (月〜日)</div>
+        <div class="stat-val" id="weekTime">0分</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">累計</div>
+        <div class="stat-val" id="totalTime">0分</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. タイマー計測 -->
+  <div class="card timer-section">
+    <div class="active-book" id="activeBookTitle">👇 下のリストから本を選択してください</div>
+    <div class="timer-display" id="timerDisplay">00:00:00</div>
+    <button class="btn btn-primary btn-large" id="timerBtn" onclick="toggleTimer()">読書を開始</button>
+  </div>
+
+  <!-- 3. 本の追加と選択 -->
+  <div class="card">
+    <h2>本棚（タップして選択）</h2>
+    <div class="input-group">
+      <input type="text" id="bookInput" placeholder="本のタイトルを入力">
+      <button class="btn btn-primary" onclick="addBook()">追加</button>
+    </div>
+    <ul class="book-list" id="bookList"></ul>
+  </div>
+
+  <!-- 4. 過去7日間の日別記録 -->
+  <div class="card">
+    <h2>過去7日間の日別記録</h2>
+    <ul class="log-list" id="dailyList"></ul>
+  </div>
+
+  <!-- 5. 最近の読書履歴 -->
+  <div class="card">
+    <h2>最近の読書履歴（直近15件）</h2>
+    <ul class="log-list" id="recentLogs"></ul>
+  </div>
+
+  <script>
+    // --- データ管理 (LocalStorage) ---
+    let books = JSON.parse(localStorage.getItem('rt_books')) || [];
+    let logs = JSON.parse(localStorage.getItem('rt_logs')) || [];
+    let selectedBookId = localStorage.getItem('rt_selected_book') || null;
+    
+    // タイマー状態（画面リロードやバックグラウンド移行に耐えるためタイムスタンプを保存）
+    let timerState = JSON.parse(localStorage.getItem('rt_timer_state')) || {
+      isRunning: false,
+      startTime: null,
+      bookId: null
+    };
+    let timerInterval = null;
+
+    function saveData() {
+      localStorage.setItem('rt_books', JSON.stringify(books));
+      localStorage.setItem('rt_logs', JSON.stringify(logs));
+      if (selectedBookId) {
+        localStorage.setItem('rt_selected_book', selectedBookId);
+      } else {
+        localStorage.removeItem('rt_selected_book');
+      }
+      localStorage.setItem('rt_timer_state', JSON.stringify(timerState));
+    }
+
+    // --- 時間フォーマット関数 ---
+    function formatHMS(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+    }
+
+    function formatReadable(sec) {
+      if (sec === 0) return '0分';
+      if (sec < 60) return `${sec}秒`;
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      return h > 0 ? `${h}時間${m}分` : `${m}分`;
+    }
+
+    // ローカルタイムゾーン基準の YYYY-MM-DD 取得
+    function getLocalDateStr(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // --- 本の操作 ---
+    function addBook() {
+      const input = document.getElementById('bookInput');
+      const title = input.value.trim();
+      if (!title) return;
+
+      const newBook = {
+        id: 'book_' + Date.now(),
+        title: title
+      };
+      books.unshift(newBook);
+      selectedBookId = newBook.id;
+      input.value = '';
+      saveData();
+      renderAll();
+    }
+
+    function selectBook(id) {
+      if (timerState.isRunning) {
+        alert('計測中は本を変更できません。先に読書を終了してください。');
+        return;
+      }
+      selectedBookId = id;
+      saveData();
+      renderAll();
+    }
+
+    function deleteBook(e, id) {
+      e.stopPropagation();
+      if (timerState.isRunning && timerState.bookId === id) {
+        alert('現在計測中の本は削除できません。');
+        return;
+      }
+      if (!confirm('この本をリストから削除しますか？（過去の読書時間統計は残ります）')) return;
+      books = books.filter(b => b.id !== id);
+      if (selectedBookId === id) {
+        selectedBookId = books.length > 0 ? books[0].id : null;
+      }
+      saveData();
+      renderAll();
+    }
+
+    // --- タイマー操作 ---
+    function toggleTimer() {
+      if (!timerState.isRunning) {
+        // 開始処理
+        if (!selectedBookId) {
+          alert('先に読む本を追加・選択してください。');
+          return;
+        }
+        timerState = {
+          isRunning: true,
+          startTime: Date.now(),
+          bookId: selectedBookId
+        };
+        saveData();
+        startTick();
+        renderTimerUI();
+      } else {
+        // 終了・記録処理
+        const elapsedSec = Math.floor((Date.now() - timerState.startTime) / 1000);
+        clearInterval(timerInterval);
+
+        if (elapsedSec >= 1) {
+          const book = books.find(b => b.id === timerState.bookId);
+          logs.unshift({
+            id: 'log_' + Date.now(),
+            bookId: timerState.bookId,
+            bookTitle: book ? book.title : '削除された本',
+            seconds: elapsedSec,
+            timestamp: Date.now(),
+            dateStr: getLocalDateStr(new Date())
+          });
+        }
+
+        timerState = { isRunning: false, startTime: null, bookId: null };
+        saveData();
+        document.getElementById('timerDisplay').textContent = '00:00:00';
+        renderAll();
+      }
+    }
+
+    function startTick() {
+      clearInterval(timerInterval);
+      const updateDisplay = () => {
+        if (!timerState.isRunning) return;
+        const sec = Math.floor((Date.now() - timerState.startTime) / 1000);
+        document.getElementById('timerDisplay').textContent = formatHMS(sec);
+      };
+      updateDisplay();
+      timerInterval = setInterval(updateDisplay, 1000);
+    }
+
+    // --- 画面描画 ---
+    function renderTimerUI() {
+      const btn = document.getElementById('timerBtn');
+      const titleEl = document.getElementById('activeBookTitle');
+      const activeId = timerState.isRunning ? timerState.bookId : selectedBookId;
+      const book = books.find(b => b.id === activeId);
+
+      titleEl.textContent = book ? `📖 ${book.title}` : '👇 下のリストから本を選択してください';
+
+      if (timerState.isRunning) {
+        btn.textContent = '読書を終了して記録する';
+        btn.className = 'btn btn-danger btn-large';
+      } else {
+        btn.textContent = '読書を開始';
+        btn.className = 'btn btn-primary btn-large';
+      }
+    }
+
+    function renderAll() {
+      renderTimerUI();
+
+      // 1. 本棚リストの描画
+      const bookListEl = document.getElementById('bookList');
+      if (books.length === 0) {
+        bookListEl.innerHTML = '<li class="empty-msg">まだ本が登録されていません</li>';
+      } else {
+        bookListEl.innerHTML = books.map(b => {
+          const totalBookSec = logs
+            .filter(l => l.bookId === b.id)
+            .reduce((sum, l) => sum + l.seconds, 0);
+          const isSelected = b.id === selectedBookId ? 'selected' : '';
+          return `
+            <li class="book-item ${isSelected}" onclick="selectBook('${b.id}')">
+              <span class="book-title">${escapeHTML(b.title)}</span>
+              <div class="book-meta">
+                <span class="book-time">計 ${formatReadable(totalBookSec)}</span>
+                <button class="del-btn" onclick="deleteBook(event, '${b.id}')" title="削除">✕</button>
+              </div>
+            </li>
+          `;
+        }).join('');
+      }
+
+      // 2. 今日・今週・累計の計算
+      const now = new Date();
+      const todayStr = getLocalDateStr(now);
+
+      // 今週の月曜日 00:00:00 を算出
+      const dayOfWeek = now.getDay(); // 0(日)〜6(土)
+      const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+      monday.setHours(0, 0, 0, 0);
+
+      let todaySec = 0;
+      let weekSec = 0;
+      let totalSec = 0;
+
+      logs.forEach(l => {
+        totalSec += l.seconds;
+        if (l.dateStr === todayStr) todaySec += l.seconds;
+        if (l.timestamp >= monday.getTime()) weekSec += l.seconds;
+      });
+
+      document.getElementById('todayTime').textContent = formatReadable(todaySec);
+      document.getElementById('weekTime').textContent = formatReadable(weekSec);
+      document.getElementById('totalTime').textContent = formatReadable(totalSec);
+
+      // 3. 過去7日間の日別集計
+      const dailyListEl = document.getElementById('dailyList');
+      let dailyHtml = '';
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const dStr = getLocalDateStr(d);
+        const daySec = logs
+          .filter(l => l.dateStr === dStr)
+          .reduce((sum, l) => sum + l.seconds, 0);
+        const label = i === 0 ? `今日 (${dStr.slice(5)})` : dStr.slice(5);
+        dailyHtml += `
+          <li class="log-item">
+            <span>${label}</span>
+            <strong>${formatReadable(daySec)}</strong>
+          </li>
+        `;
+      }
+      dailyListEl.innerHTML = dailyHtml;
+
+      // 4. 直近の履歴リスト
+      const recentEl = document.getElementById('recentLogs');
+      if (logs.length === 0) {
+        recentEl.innerHTML = '<li class="empty-msg">まだ記録がありません</li>';
+      } else {
+        recentEl.innerHTML = logs.slice(0, 15).map(l => {
+          const dt = new Date(l.timestamp);
+          const timeStr = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+          return `
+            <li class="log-item">
+              <span>${escapeHTML(l.bookTitle)} <small style="color:#64748b">(${timeStr})</small></span>
+              <strong>${formatReadable(l.seconds)}</strong>
+            </li>
+          `;
+        }).join('');
+      }
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag]));
+    }
+
+    // 初期化と復元（計測中に誤ってリロードしても再開できるようにする）
+    if (timerState.isRunning) {
+      selectedBookId = timerState.bookId;
+      startTick();
+    }
+    renderAll();
+
+    // Service Worker の登録 (PWA化)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
