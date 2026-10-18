@@ -1,4 +1,4 @@
-const CACHE = 'reading-timer-v3';
+const CACHE = 'reading-timer-v4';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
