@@ -82,7 +82,10 @@
     .btn:active { opacity: 0.75; }
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-danger { background: var(--danger); color: #fff; }
+    .btn-warn { background: #d97706; color: #fff; }
     .btn-large { width: 100%; padding: 14px; font-size: 1.1rem; }
+    .btn-row { display: flex; gap: 8px; }
+    .btn-row .btn { flex: 1; padding: 14px; font-size: 1.1rem; }
 
     /* 本の追加・リスト */
     .input-group { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -162,7 +165,11 @@
   <div class="card timer-section">
     <div class="active-book" id="activeBookTitle">👇 下のリストから本を選択してください</div>
     <div class="timer-display" id="timerDisplay">00:00:00</div>
-    <button class="btn btn-primary btn-large" id="timerBtn" onclick="toggleTimer()">読書を開始</button>
+    <button class="btn btn-primary btn-large" id="timerBtn" onclick="mainBtn()">読書を開始</button>
+    <div class="btn-row" id="pausedRow" style="display:none">
+      <button class="btn btn-primary" onclick="resumeTimer()">再開</button>
+      <button class="btn btn-danger" onclick="finishTimer()">記録する</button>
+    </div>
   </div>
 
   <!-- 3. 本の追加と選択 -->
@@ -193,12 +200,18 @@
     let logs = JSON.parse(localStorage.getItem('rt_logs')) || [];
     let selectedBookId = localStorage.getItem('rt_selected_book') || null;
     
-    // タイマー状態（画面リロードやバックグラウンド移行に耐えるためタイムスタンプを保存）
-    let timerState = JSON.parse(localStorage.getItem('rt_timer_state')) || {
-      isRunning: false,
-      startTime: null,
-      bookId: null
-    };
+    // タイマー状態（status: idle / running / paused）。リロードやバックグラウンドに耐えるよう時刻で保持
+    function loadTimerState() {
+      const idle = { status: 'idle', startTime: null, accMs: 0, bookId: null };
+      try {
+        const t = JSON.parse(localStorage.getItem('rt_timer_state'));
+        if (!t) return idle;
+        if (t.status) return Object.assign(idle, t);
+        if (t.isRunning) return { status: 'running', startTime: t.startTime, accMs: 0, bookId: t.bookId };
+      } catch (e) {}
+      return idle;
+    }
+    let timerState = loadTimerState();
     let timerInterval = null;
 
     function saveData() {
@@ -254,8 +267,8 @@
     }
 
     function selectBook(id) {
-      if (timerState.isRunning) {
-        alert('計測中は本を変更できません。先に読書を終了してください。');
+      if (timerState.status !== 'idle') {
+        alert('計測中は本を変更できません。先に「記録する」で読書を終了してください。');
         return;
       }
       selectedBookId = id;
@@ -265,7 +278,7 @@
 
     function deleteBook(e, id) {
       e.stopPropagation();
-      if (timerState.isRunning && timerState.bookId === id) {
+      if (timerState.status !== 'idle' && timerState.bookId === id) {
         alert('現在計測中の本は削除できません。');
         return;
       }
@@ -278,73 +291,99 @@
       renderAll();
     }
 
-    // --- タイマー操作 ---
-    function toggleTimer() {
-      if (!timerState.isRunning) {
-        // 開始処理
-        if (!selectedBookId) {
-          alert('先に読む本を追加・選択してください。');
-          return;
-        }
-        timerState = {
-          isRunning: true,
-          startTime: Date.now(),
-          bookId: selectedBookId
-        };
-        saveData();
-        startTick();
-        renderTimerUI();
-      } else {
-        // 終了・記録処理
-        const elapsedSec = Math.floor((Date.now() - timerState.startTime) / 1000);
-        if (!confirm(`読書を終了して記録しますか？（${formatReadable(elapsedSec)}）\n「キャンセル」を押すと計測を続けます。`)) return;
-        clearInterval(timerInterval);
+    // --- タイマー操作（開始 → 一時停止 → 再開 / 記録する） ---
+    function elapsedSec() {
+      const ms = timerState.accMs + (timerState.status === 'running' ? Date.now() - timerState.startTime : 0);
+      return Math.floor(ms / 1000);
+    }
 
-        if (elapsedSec >= 1) {
-          const book = books.find(b => b.id === timerState.bookId);
-          logs.unshift({
-            id: 'log_' + Date.now(),
-            bookId: timerState.bookId,
-            bookTitle: book ? book.title : '削除された本',
-            seconds: elapsedSec,
-            timestamp: Date.now(),
-            dateStr: getLocalDateStr(new Date())
-          });
-        }
+    function mainBtn() {
+      if (timerState.status === 'idle') startTimer();
+      else if (timerState.status === 'running') pauseTimer();
+    }
 
-        timerState = { isRunning: false, startTime: null, bookId: null };
-        saveData();
-        document.getElementById('timerDisplay').textContent = '00:00:00';
-        renderAll();
+    function startTimer() {
+      if (!selectedBookId) {
+        alert('先に読む本を追加・選択してください。');
+        return;
       }
+      timerState = { status: 'running', startTime: Date.now(), accMs: 0, bookId: selectedBookId };
+      saveData();
+      startTick();
+      renderTimerUI();
+    }
+
+    function pauseTimer() {
+      timerState.accMs += Date.now() - timerState.startTime;
+      timerState.startTime = null;
+      timerState.status = 'paused';
+      saveData();
+      startTick();
+      renderTimerUI();
+    }
+
+    function resumeTimer() {
+      timerState.startTime = Date.now();
+      timerState.status = 'running';
+      saveData();
+      startTick();
+      renderTimerUI();
+    }
+
+    function finishTimer() {
+      const sec = elapsedSec();
+      clearInterval(timerInterval);
+      if (sec >= 1) {
+        const book = books.find(b => b.id === timerState.bookId);
+        logs.unshift({
+          id: 'log_' + Date.now(),
+          bookId: timerState.bookId,
+          bookTitle: book ? book.title : '削除された本',
+          seconds: sec,
+          timestamp: Date.now(),
+          dateStr: getLocalDateStr(new Date())
+        });
+      }
+      timerState = { status: 'idle', startTime: null, accMs: 0, bookId: null };
+      saveData();
+      document.getElementById('timerDisplay').textContent = '00:00:00';
+      renderAll();
     }
 
     function startTick() {
       clearInterval(timerInterval);
-      const updateDisplay = () => {
-        if (!timerState.isRunning) return;
-        const sec = Math.floor((Date.now() - timerState.startTime) / 1000);
-        document.getElementById('timerDisplay').textContent = formatHMS(sec);
+      const update = () => {
+        document.getElementById('timerDisplay').textContent = formatHMS(elapsedSec());
       };
-      updateDisplay();
-      timerInterval = setInterval(updateDisplay, 1000);
+      update();
+      if (timerState.status === 'running') timerInterval = setInterval(update, 1000);
     }
 
     // --- 画面描画 ---
     function renderTimerUI() {
       const btn = document.getElementById('timerBtn');
+      const row = document.getElementById('pausedRow');
       const titleEl = document.getElementById('activeBookTitle');
-      const activeId = timerState.isRunning ? timerState.bookId : selectedBookId;
+      const st = timerState.status;
+      const activeId = st !== 'idle' ? timerState.bookId : selectedBookId;
       const book = books.find(b => b.id === activeId);
 
-      titleEl.textContent = book ? `📖 ${book.title}` : '👇 下のリストから本を選択してください';
+      if (!book) titleEl.textContent = '👇 下のリストから本を選択してください';
+      else titleEl.textContent = st === 'paused' ? `⏸ ${book.title}（一時停止中）` : `📖 ${book.title}`;
 
-      if (timerState.isRunning) {
-        btn.textContent = '読書を終了して記録する';
-        btn.className = 'btn btn-danger btn-large';
+      if (st === 'paused') {
+        btn.style.display = 'none';
+        row.style.display = 'flex';
       } else {
-        btn.textContent = '読書を開始';
-        btn.className = 'btn btn-primary btn-large';
+        btn.style.display = '';
+        row.style.display = 'none';
+        if (st === 'running') {
+          btn.textContent = '一時停止';
+          btn.className = 'btn btn-warn btn-large';
+        } else {
+          btn.textContent = '読書を開始';
+          btn.className = 'btn btn-primary btn-large';
+        }
       }
     }
 
@@ -441,7 +480,7 @@
     }
 
     // 初期化と復元（計測中に誤ってリロードしても再開できるようにする）
-    if (timerState.isRunning) {
+    if (timerState.status !== 'idle') {
       selectedBookId = timerState.bookId;
       startTick();
     }
